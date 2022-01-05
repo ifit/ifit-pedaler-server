@@ -28,12 +28,13 @@ sudo supervisorctl update
 
 # Usage - web app
 * Run `sudo run.sh` on your pi (if you don't want to run sudo, changing your port in `run.sh` should do it)
-* On your dev machine, point your browser to your Pi's local IP, e.g. `http://192.168.1.22`
+* On your dev machine, point your browser to your Pi's local IP, e.g. `http://192.168.1.22/edit`
 * Enter in the BCM pin number that your wire is connected to
 * Enter in (approximate) RPMs
 * Press "Pedal!" to start pedaling
 * Press "Stop" to stop pedaling.
 * If you close the page without pressing stop, the server will keep on "pedaling"
+* There is also a status page you can find at `http://192.168.1.22/` that will tell you which pins are active and what their RPM is. It automatically refreshes every 5 seconds. You can click the edit button to take you to the edit page for that pin. You can also stop the pedaling on that pin by clicking the X button next to the pin. 
 * You can also send these via POST commands.
 * `/set` Starts pedaling or sets the RPM to the given value on the given pin number. 
 ```
@@ -48,8 +49,6 @@ sudo supervisorctl update
     "bcmPin": "[pin number]"
 }
 ```
-* 
-* There is also a status page you can find at `http://the.ip.addr.ess/status` that will tell you which pins are active and what their RPM is. It automatically refreshes every 5 seconds. s
 
 # Usage - Android app
 * Install "Pedal4Me" from the releases page
