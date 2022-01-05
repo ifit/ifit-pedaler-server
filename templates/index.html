@@ -29,9 +29,14 @@
 			}
 
 			function onStop(){
+				let bcmValue = getBcmPinValue()
+				history.pushState(null,"","?bcmPin=" + bcmValue)
 				$.ajax({
 					url: "stop",
 					type: "POST",
+					contentType: "application/json",
+					data: JSON.stringify({ bcmPin: bcmValue }),
+					dataType: "json",
 					success: function (result){
 						$("#status").html(" Stopped!")
 					},

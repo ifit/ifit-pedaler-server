@@ -35,6 +35,21 @@ sudo supervisorctl update
 * Press "Stop" to stop pedaling.
 * If you close the page without pressing stop, the server will keep on "pedaling"
 
+* You can also send these via POST commands.
+* `/set` Starts pedaling or sets the RPM to the given value on the given pin number. 
+```
+{
+    "bcmPin": "[pin number]",
+    "rpm": "[rpm number]"
+}
+```
+* `/stop` Stops pedaling on the given pin number.
+```
+{
+    "bcmPin": "[pin number]"
+}
+```
+
 # Usage - Android app
 * Install "Pedal4Me" from the releases page
 * Start the app
