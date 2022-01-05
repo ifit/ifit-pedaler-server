@@ -51,7 +51,7 @@ def homePage():
 
 @app.route('/status')
 def statusPage():
-	return render_template('status.html', )
+	return render_template('status.html', deviceData=devices.values())
 
 @app.route('/set', methods=['POST'])
 def set():
