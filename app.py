@@ -47,20 +47,20 @@ class PedalLooper(threading.Thread):
 			if not devices[self.gpioPin].keepRunning:
 				return
 
+def sortByPin(e):
+	return e.bcmPin
+
 @app.route('/')
 def homePage():
+	data = list(devices.values())
+	data.sort(key=sortByPin)
+	return render_template('index.html', deviceData=data)
+
+@app.route('/edit')
+def statusPage():
 	bcmPin = request.args.get('bcmPin', 21)
 	rpm = request.args.get('rpm', 45)
-	return render_template('index.html', bcmPin=bcmPin, rpm=rpm)
-
-def sortByPin(e):
-    return e.bcmPin
-
-@app.route('/status')
-def statusPage():
-    data = list(devices.values())
-    data.sort(key=sortByPin)
-    return render_template('status.html', deviceData=data)
+	return render_template('edit.html', bcmPin=bcmPin, rpm=rpm)
 
 @app.route('/set', methods=['POST'])
 def set():
