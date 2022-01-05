@@ -34,7 +34,6 @@ sudo supervisorctl update
 * Press "Pedal!" to start pedaling
 * Press "Stop" to stop pedaling.
 * If you close the page without pressing stop, the server will keep on "pedaling"
-
 * You can also send these via POST commands.
 * `/set` Starts pedaling or sets the RPM to the given value on the given pin number. 
 ```
@@ -49,6 +48,8 @@ sudo supervisorctl update
     "bcmPin": "[pin number]"
 }
 ```
+* 
+* There is also a status page you can find at `http://the.ip.addr.ess/status` that will tell you which pins are active and what their RPM is. It automatically refreshes every 5 seconds. s
 
 # Usage - Android app
 * Install "Pedal4Me" from the releases page

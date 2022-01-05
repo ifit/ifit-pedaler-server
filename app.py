@@ -2,8 +2,10 @@
 
 from dataclasses import dataclass
 from flask import Flask, render_template, request
+from queue import Queue
 from threading import Thread
 from time import sleep
+from typing import List
 import math
 import json
 import threading
@@ -49,9 +51,14 @@ def homePage():
 	rpm = request.args.get('rpm', 45)
 	return render_template('index.html', bcmPin=bcmPin, rpm=rpm)
 
+def sortByPin(e):
+    return e.bcmPin
+
 @app.route('/status')
 def statusPage():
-	return render_template('status.html', deviceData=devices.values())
+    data = list(devices.values())
+    data.sort(key=sortByPin)
+    return render_template('status.html', deviceData=data)
 
 @app.route('/set', methods=['POST'])
 def set():
@@ -78,11 +85,12 @@ def stop():
 	reqData = request.get_json (force=True)
 	bcmPin = int(reqData['bcmPin'])
 	device = devices.get(bcmPin)
-
+	
 	if device is None:
 		print('Not running on ' + str(bcmPin))
-		return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
-
+		return json.dumps({'success':True}), 404, {'ContentType':'application/json'} 
+	
 	device.keepRunning = False
 	device.pedalThread = None
 	return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+
