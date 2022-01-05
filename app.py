@@ -8,6 +8,7 @@ from time import sleep
 from typing import List
 import math
 import json
+import random
 import threading
 import os
 #os.environ['GPIOZERO_PIN_FACTORY'] = os.environ.get('GPIOZERO_PIN_FACTORY', 'mock') # uncomment for dev on a non-pi machine
@@ -34,8 +35,9 @@ class PedalLooper(threading.Thread):
 		device = devices[self.gpioPin]
 		wire = gpiozero.LED(int(self.gpioPin))
 		while devices[self.gpioPin].keepRunning:
-			delaySec = (14110.1 / math.pow(device.rpm, 0.988567318803339)) / 1000.0
-			print('running at ' + str(device.rpm) + ' rpm (delay ' + str(delaySec) + ' sec) on pin ' + str(device.bcmPin))
+			jitterRpm = device.rpm + random.choices([-1, 0, 1], weights=[0.15, 0.7, 0.15], k=1)[0]
+			delaySec = (14110.1 / math.pow(jitterRpm, 0.988567318803339)) / 1000.0
+			print('running at ' + str(jitterRpm) + ' rpm (delay ' + str(delaySec) + ' sec) on pin ' + str(device.bcmPin))
 			wire.on()
 			sleep(delaySec)
 			if not devices[self.gpioPin].keepRunning:
