@@ -37,7 +37,7 @@ sudo supervisorctl update
 * If you close the page without pressing stop, the server will keep on "pedaling"
 * There is also a status page you can find at, for example `http://192.168.1.22/`, that will tell you which pins are active and what their RPM is. It automatically refreshes every 5 seconds. You can click the edit button to take you to the edit page for that pin. You can also stop the pedaling on that pin by clicking the X button next to the pin. 
 * You can also send these via POST commands.
-* `/set` Starts pedaling or sets the RPM to the given value on the given pin number. 
+* `/set` Starts pedaling or sets the RPM to the given value on the given pin number. Valid pins are 0 through 27. 
 ```
 {
     "bcmPin": "[pin number]",
@@ -45,7 +45,7 @@ sudo supervisorctl update
     "strokeRpm": true/false
 }
 ```
-* `/stop` Stops pedaling on the given pin number.
+* `/stop` Stops pedaling on the given pin number. Sending -1 for the pin number will stop ALL of the pedaling on ALL of the pins.
 ```
 {
     "bcmPin": "[pin number]"
