@@ -42,7 +42,7 @@ sudo supervisorctl update
 {
     "bcmPin": "[pin number]",
     "rpm": "[rpm number]",
-    "strokeRpm": "[True/False]"
+    "strokeRpm": true/false
 }
 ```
 * `/stop` Stops pedaling on the given pin number.
