@@ -109,6 +109,10 @@ def set():
 	bcmPin = int(reqData['bcmPin'])
 	rpm = int(reqData['rpm'])
 	strokeRpm = bool(reqData['strokeRpm'])
+
+	if bcmPin < 0 or bcmPin > 27:
+		return json.dumps({'success':False}), 400, {'ContentType':'application/json'}
+	
 	device = devices.get(bcmPin)
 
 	if device is None:
@@ -129,6 +133,11 @@ def set():
 def stop():
 	reqData = request.get_json (force=True)
 	bcmPin = int(reqData['bcmPin'])
+
+	if bcmPin < 0:
+		stopAll()
+		return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+
 	device = devices.get(bcmPin)
 	
 	if device is None:
@@ -138,4 +147,13 @@ def stop():
 	device.keepRunning = False
 	device.pedalThread = None
 	return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+
+def stopAll():
+	for i in range(28):
+		device = devices.get(i)
+		if device is None:
+			continue
+		else:
+			device.keepRunning = False
+			device.pedalThread = None
 
