@@ -41,7 +41,8 @@
 			<tr>
 				<th>Pin #</th>
 				<th>RPM</th>
-				<th>Is Active?</th>
+				<th>Stroke</th>
+				<th>Active</th>
 				<th>Edit</th>
 			</tr>
 		</thead>
@@ -51,6 +52,7 @@
 			<tr>
 				<td>{{device.bcmPin}}</td>
 				<td>{{device.rpm}}</td>
+				<td>{{device.strokeRpm}}</td>
 				<td>{{device.keepRunning}}</td>
 				<td><a href='/edit?bcmPin={{device.bcmPin}}'><button>&#9999;</button></a><button id='stop{{device.bcmPin}}'>X</button></a></td>
 			</tr>
