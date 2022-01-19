@@ -1,10 +1,12 @@
 #!/usr/bin/env python
+from threading import Thread, Event
 import os
 import queue
 import serial
 import serial.rs485
 import string
 import time
+import threading
 
 # https://github.com/ifit/SparkyWikiJS/blob/master/icon-protocols/shortbus.md
 
@@ -375,53 +377,85 @@ receiving = False
 # to stop it from other scripts. If its eating too much
 # CPU, you can uncomment the time.sleeps(..) and adjust
 # the wait times. 
-def monitor(print_out=False):
+def monitor(print_out=False, add_to_q=False):
     global monitoring
+    
     monitoring = True
+    
     with monitor_q.mutex:
         monitor_q.queue.clear()
     
     while monitoring:
-        os.system("echo 0 > /sys/class/gpio/gpio18/value")
-        time.sleep(0.005)
-        count = ser.inWaiting
-        if(count != 0):
-            x = ser.readline()
-            #print(x)
-            if x != b'':
-                msg = parse_message(x, print_out)
+        sdata = try_read_msg()
+        #print(sdata)
+        if sdata != b'':
+            msg = parse_message(sdata, print_out)
+            
+            if add_to_q:
                 monitor_q.put(msg)
-                time.sleep(0.005)
+        
+        time.sleep(0.005)
                 
 def stop_monitor():
     global monitoring
+    
     monitoring = False
+    
     with monitor_q.mutex:
         monitor_q.queue.clear()
 
-# Runs until it finds a valid message and returns it.
+# Runs until it thinks it found a message and returns it.
 # You should not call this while monitoring=True!
 # You should not call receive() and send(..) on different threads!
 def receive(print_out=False):
     global receiving
+    
     receiving = True
     
     while receiving:
-        os.system("echo 0 > /sys/class/gpio/gpio18/value")
+        sdata = try_read_msg()
+        #os.system("echo 0 > /sys/class/gpio/gpio18/value")
+        #time.sleep(0.005)
+        #count = ser.inWaiting
+        #if(count != 0):
+        #    x = ser.readline()
+        if sdata != b'':
+            msg = parse_message(sdata, print_out)
+            break
+        
         time.sleep(0.005)
-        count = ser.inWaiting
-        if(count != 0):
-            x = ser.readline()
-            if x != b'':
-                msg = parse_message(x, print_out)
-                time.sleep(0.005)
-                break
     
     return msg
 
 def stop_receive():
     global receiving
+    
     receiving = False
+
+# Tries to read a complete message from the serial port
+def try_read_msg():
+    os.system("echo 0 > /sys/class/gpio/gpio18/value")
+    time.sleep(0.005)
+    sdata = ser.read()
+    count = 0
+    # most of our messages are going to be like 15-30 bytes, I believe
+    # 256 seems like a good max number of bytes to read, ymmv
+    while count < 256: 
+        #count = ser.inWaiting()
+        x = ser.read(1) 
+        sdata += x
+        if x == b'\n': #read until we get a \n
+            break
+        count += 1
+    
+    try:
+        colonIdx = sdata.index(b':')
+        if colonIdx != 0:
+            sdata = sdata[colonIdx:]
+    except ValueError:
+        print('[Shortbus:Warning] Tried to read a message, but its probably invalid. Returning it anyway and hoping for the best: ' + str(sdata))
+    
+    return sdata
 
 # Sends an arbitrary message
 # You should not call this while monitoring=True!
@@ -429,13 +463,13 @@ def stop_receive():
 def send(msg):
     os.system("echo 1 > /sys/class/gpio/gpio18/value")
     time.sleep(0.005)
-    ser.write(bmsg)
+    ser.write(msg)
 
 # Sends a ShortbusMessage via send(..), first converting it to binary
 # You should not call this while monitoring=True!
 # You should not call receive() and send(..) on different threads!
 def send_sb(sb_msg):
-    bmsg = msg.to_bin()
+    bmsg = sb_msg.to_bin()
     send(bmsg)
 
 # Makes a response for the given request.
@@ -471,7 +505,6 @@ def make_read_response(sb_req, val):
     data_len = 2 # TODO: get this from a dict or something
     bhexval = '{0:0{1}x}'.format(val, data_len * 2).encode('ascii')
     bdata_len = '{0:0{1}x}'.format(data_len, 2).encode('ascii')
-    # raw_data, msg_len, msg_type_str, addr, addr_str, cmd_type, cmd_type_str, data_len, cmd, cmd_dir, cmd_str, data, data_str, checksum
     res = ShortbusMessage('', -1, '', sb_req.addr, '', b'03', '', bdata_len, b'01' + sb_req.cmd[2:], 'RESPONSE', '', bhexval, '', '')
     
     return res
@@ -689,10 +722,61 @@ def get_data(msg):
 
     return -1
 
-# gets the unit correct (??) data from the message as string
+# gets the data from the message as string
+# converts the hex characters to a decimal number first
 def get_data_str(msg):
      data = get_data(msg)
      return str(int(data, 16))
 
+# Cause its easy to forget what the ShortbusMessage properties are all the way down here:
+# raw_data, msg_len, msg_type_str, addr, addr_str, cmd_type, cmd_type_str, data_len, cmd, cmd_dir, cmd_str, data, data_str, checksum
+
+def peripheral_test():
+    spooferThread = threading.Thread(target=spoofer, daemon=True)
+    spooferThread.start()
+    spooferThread.join()
+
+def spoofer():
+    speed = 42
+    incline = 0
+    resistance = 1
+    
+    
+    while 1:
+        req = receive()
+        
+        if req.cmd_type == b'03': # Read
+            if req.addr.startswith(b'4'):
+                res = make_response(req, incline)
+            elif req.addr.startswith(b'5'):
+                res = make_response(req, speed)
+            elif req.addr.startswith(b'6'):
+                res = make_response(req, resistance)
+            else:
+                print('[Shortbus:Warning] I dont have a response for this READ, yet... ')
+                res.print_out()
+        elif req.cmd_type == b'06': # Write
+            if req.addr.startswith(b'4'):
+                incline = int(req.data_str)
+                print('[Shortbus:Write] Incline: ' + str(incline))
+            elif req.addr.startswith(b'5'):
+                speed = int(req.data_str)
+            elif req.addr.startswith(b'6'):
+                resistance = int(req.data_str)
+                print('[Shortbus:Write] Resistance: ' + str(resistance))
+            res = make_response(req)
+        else:
+            print('[Shortbus:Error] Something is wrong with this message! ' + str(req))
+            res.print_out()
+            break
+        
+        send_sb(res)
+        
+
+# !!! HERE BE DRAGONS !!!
+# or, some development things...
+#monitor(True)
+#receive(True)
 #sb_req = parse_message(b':510300020000AA\r\n')
 #make_response(sb_req, 16)
+peripheral_test()
