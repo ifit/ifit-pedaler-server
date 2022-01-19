@@ -1,78 +1,79 @@
 <html>
-	<head>
-		<title>Add/Edit Pedaler Device</title>
-		<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
-		<script type="text/javascript">
-			window.onload = onLoad
-			function onLoad(){
-				$("#submit").click (function() { onSubmit ()})
-				$("#stop").click (function() { onStop ()})
-			}
-			function onSubmit(){
-				let bcmValue = getBcmPinValue()
-				let rpmValue = getRpmValue()
-				let strokeValue = getStrokeRpmValue()
-				history.pushState(null,"","?bcmPin=" + bcmValue + "&rpm=" + rpmValue + "&strokeRpm=" + strokeValue)
-				$("#status").html("")
-				$.ajax({
-					url: "set",
-					type: "POST",
-					contentType: "application/json",
-					data: JSON.stringify({ bcmPin : bcmValue, rpm: rpmValue, strokeRpm: strokeValue }),
-					dataType: "json",
-					success: function (result){
-						$("#status").html(" Set and running!")
-					},
-					error:function(err){
-						$("#status").html(" Error :(")
-					}
-				})
-			}
-
-			function onStop(){
-				let bcmValue = getBcmPinValue()
-				history.pushState(null,"","?bcmPin=" + bcmValue)
-				$.ajax({
-					url: "stop",
-					type: "POST",
-					contentType: "application/json",
-					data: JSON.stringify({ bcmPin: bcmValue }),
-					dataType: "json",
-					success: function (result){
-						$("#status").html(" Stopped!")
-					},
-					error:function(err){
-						$("#status").html(" Error :(")
-					}
-				})
-			}
-
-			function getBcmPinValue(){
-				return $("#bcmPin").val()
-			}
-
-			function getRpmValue(){
-				return $("#rpm").val()
-			}
-			
-			function getStrokeRpmValue(){
-				return $("#strokeRpm").is(":checked")
-			}
-		</script>
-	</head>
-	<body>
-		<h1>Add/Edit Pedaler Device</h1>
-		  BCM pin: <input type="text" id="bcmPin" value="{{bcmPin}}"><br>
-		  RPM (int only): <input type="text" id="rpm" value="{{rpm}}"><br>
-		  Stroke RPMs <input type="checkbox" id="strokeRpm" value="{{strokeRpm}}"><br>
-		  <!-- On Time: <input type="text" name="lname"><br> -->
-		  <button id="submit">Pedal</button><span id="status"></span><br>
-		  <button id="stop">Stop</button>
-		  <br>
-		  <br>
-		  <a href='/'><button>Home</button></a>
-		  <br>
-		  <br>
-		  <a href="https://pinout.xyz/">Guide to Raspberry PI pins</a>
-	</body>
+<head>
+	<title>Add/Edit Pedaler Device</title>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+	<script type="text/javascript">
+		window.onload = onLoad	
+		function onLoad(){
+			$("#submit").click (function() { onSubmit ()})
+			$("#stop").click (function() { onStop ()})
+		}
+		
+		function onSubmit(){
+			let bcmValue = getBcmPinValue()
+			let rpmValue = getRpmValue()
+			let strokeValue = getStrokeRpmValue()
+			history.pushState(null,"","?bcmPin=" + bcmValue + "&rpm=" + rpmValue + "&strokeRpm=" + strokeValue)
+			$("#status").html("")
+			$.ajax({
+				url: "set",
+				type: "POST",
+				contentType: "application/json",
+				data: JSON.stringify({ bcmPin : bcmValue, rpm: rpmValue, strokeRpm: strokeValue }),
+				dataType: "json",
+				success: function (result){
+					$("#status").html(" Set and running!")
+				},
+				error:function(err){
+					$("#status").html(" Error :(")
+				}
+			})
+		}
+		
+		function onStop(){
+			let bcmValue = getBcmPinValue()
+			history.pushState(null,"","?bcmPin=" + bcmValue)
+			$.ajax({
+				url: "stop",
+				type: "POST",
+				contentType: "application/json",
+				data: JSON.stringify({ bcmPin: bcmValue }),
+				dataType: "json",
+				success: function (result){
+					$("#status").html(" Stopped!")
+				},
+				error:function(err){
+					$("#status").html(" Error :(")
+				}
+			})
+		}
+		
+		function getBcmPinValue(){
+			return $("#bcmPin").val()
+		}
+		
+		function getRpmValue(){
+			return $("#rpm").val()
+		}
+		
+		function getStrokeRpmValue(){
+			return $("#strokeRpm").is(":checked")
+		}
+	</script>
+</head>
+<body>
+	<h1>Add/Edit Pedaler Device</h1>
+	BCM pin: <input type="text" id="bcmPin" value="{{bcmPin}}"><br>
+	RPM (int only): <input type="text" id="rpm" value="{{rpm}}"><br>
+	Stroke RPMs <input type="checkbox" id="strokeRpm" value="{{strokeRpm}}"><br>
+	<!-- On Time: <input type="text" name="lname"><br> -->
+	<button id="submit">Pedal</button><span id="status"></span><br>
+	<button id="stop">Stop</button>
+	<br>
+	<br>
+	<a href='/'><button>Home</button></a>
+	<br>
+	<br>
+	<a href="https://pinout.xyz/">Guide to Raspberry PI pins</a>
+</body>
 </html>

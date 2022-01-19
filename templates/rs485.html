@@ -1,0 +1,30 @@
+<html>
+<head>
+	<title>Shortbus (RS-485) Manager</title>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js" integrity="sha512-q/dWJ3kcmjBLU4Qc47E4A9kTB4m3wuTY7vkFJDTZKjTs8jhyGQnaUrxa0Ytd0ssMZhbNua9hE+E7Qv1j+DyZwA==" crossorigin="anonymous"></script>
+	<script type="text/javascript">
+		window.onload = onLoad
+		function onLoad(){
+		
+		}
+		$(document).ready(function() {
+			var socket = io();
+			<!--socket.on('connect', function() {-->
+				<!--console.log('socket connected');-->
+			<!--});-->
+			io.connect('http://' + document.domain + ':' + location.port + '/rs485socket');
+			socket.on('rs485MonUpdate', function(msg){
+				console.log(msg);
+				$('#log').append('<p>Received' + msg.data + '</p>');
+			});
+		});
+	</script>
+</head>
+<body>
+	<h1>iFit Shortbus (RS-485) Manager</h1>
+	some text
+	<div id="log"></div>
+	<!-- TODO: all the feature addresses -->
+</body>
+</html>
