@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-from threading import Thread, Event
+from datetime import datetime
+from threading import Thread, Event, Lock
 import os
 import queue
 import serial
@@ -313,6 +314,17 @@ addr_group = [ b'3', b'4', b'5', b'6', b'7' ]
 
 # TODO: command to data length data
 
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 class ShortbusMessage:
     def __init__(self, raw_data, msg_len, msg_type_str, addr, addr_str, cmd_type, cmd_type_str, data_len, cmd, cmd_dir, cmd_str, data, data_str, checksum):
         self.raw_data = raw_data
@@ -371,6 +383,10 @@ ser.rs485_mode = serial.rs485.RS485Settings(False,True)
 monitoring = False
 receiving = False
 
+monitor_dict = {}
+monitor_dict_lock = Lock()
+monitor_count = 0
+
 # This should mostly be used for development. It just
 # monitors the RS-485 traffic and prints out the parsed
 # messages to the console. You can set monitoring = False
@@ -379,6 +395,7 @@ receiving = False
 # the wait times. 
 def monitor(print_out=False, add_to_q=False):
     global monitoring
+    global monitor_count
     
     monitoring = True
     
@@ -390,12 +407,31 @@ def monitor(print_out=False, add_to_q=False):
         #print(sdata)
         if sdata != b'':
             msg = parse_message(sdata, print_out)
+            if msg == None:
+                continue
+            
+            update_monitor_dict(msg)
             
             if add_to_q:
                 monitor_q.put(msg)
         
         time.sleep(0.005)
+        #monitor_count += 1
+        #if monitor_count % 10 == 0:
+            #print(monitor_dict)
                 
+def update_monitor_dict(msg):    
+    monitor_dict_lock.acquire()
+    key = msg.addr + msg.cmd[2:]
+    monitor_dict[key] = msg
+    monitor_dict_lock.release()
+    
+def read_monitor_dict():
+    monitor_dict_lock.acquire()
+    local_dict = monitor_dict
+    monitor_dict_lock.release()
+    return local_dict
+    
 def stop_monitor():
     global monitoring
     
@@ -453,7 +489,7 @@ def try_read_msg():
         if colonIdx != 0:
             sdata = sdata[colonIdx:]
     except ValueError:
-        print('[Shortbus:Warning] Tried to read a message, but its probably invalid. Returning it anyway and hoping for the best: ' + str(sdata))
+        print(bcolors.WARNING + '[Shortbus:Warning] Tried to read a message, but its probably invalid or empty. Returning it anyway and hoping for the best: ' + bcolors.ENDC + str(sdata))
     
     return sdata
 
@@ -484,14 +520,14 @@ def make_response(sb_req, val=0):
     elif sb_req.cmd_type == b'06':
         res = make_write_response(sb_req)
     else:
-        print('[Shortbus:Error] Trying to make a response for an unknown command type: ' + str(sb_req.cmd_type))
+        print(bcolors.FAIL + '[Shortbus:Error] Trying to make a response for an unknown command type: ' + str(sb_req.cmd_type) + bcolors.ENDC)
         raise ValueError()
     
     bres = res.to_bin()
-    print('[ShortBus:Info] Made response: ' + str(bres))
+    #print('[ShortBus:Info] Made response: ' + str(bres))
     
     if not check_message(bres):
-        print('[Shortbus:Error] Oops, we made an invalid response. Check the code!')
+        print(bcolors.FAIL + '[Shortbus:Error] Oops, we made an invalid response. Check the code!' + bcolors.ENDC)
         
     return res
 
@@ -524,9 +560,9 @@ def make_write_response(sb_req):
 # returns:
 #   ShortbusMessage
 def parse_message(msg, print_out=False):
-    print('[ShortBus:Info] Parsing message: ' + str(msg))
+    #print('[ShortBus:Info] Parsing message: ' + str(msg))
     if not check_message(msg):
-        return
+        return 
     
     msg_len = get_msg_len(msg)
     msg_type_str = get_msg_type_str(msg)
@@ -552,17 +588,17 @@ def parse_message(msg, print_out=False):
 # Checks a full message to make sure its valid
 def check_message(msg):
     if not msg.startswith(b':'):
-        print('[ShortBus:Error] Message does not start with \':\'!')
+        print(bcolors.FAIL + '[ShortBus:Error] Message does not start with \':\'!' + bcolors.ENDC)
         return False
 
     if not msg.endswith(b'\r\n'):
-        print('[ShortBus:Error] Message does not end with \'\\r\\n\'!')
+        print(bcolors.FAIL + '[ShortBus:Error] Message does not end with \'\\r\\n\'!' + bcolors.ENDC)
         return False
 
     try:
         int(msg[1:-2], 16)
     except ValueError:
-        print('[ShortBus:Error] Message contains invalid hex characters!')
+        print(bcolors.FAIL + '[ShortBus:Error] Message contains invalid hex characters!' + bcolors.ENDC)
         return False
 
     expected = get_checksum(msg)
@@ -572,10 +608,10 @@ def check_message(msg):
         checksum = ' '
         
     if not (expected == checksum):
-        print('[ShortBus:Error] Message checksum is wrong! Expected ' + expected + ' but got ' + checksum)
+        print(bcolors.FAIL + '[ShortBus:Error] Message checksum is wrong! Expected ' + expected + ' but got ' + checksum + bcolors.ENDC)
         return False
     
-    print('[ShortBus:Info] Message appears to be valid.')
+    #print('[ShortBus:Info] Message appears to be valid.')
     return True
 
 # get the checksum from the message
@@ -611,7 +647,7 @@ def twos_comp(sum):
     #print(binsumstr)
     tcsum = ~int(binsumstr, 2) + 1
     #print(tcsum)
-    tchex = hex(tcsum & 0xFF)[2:]
+    tchex = '{0:0{1}x}'.format((tcsum & 0xFF), 2)
     #print(tchex)
     return tchex
 
@@ -740,10 +776,19 @@ def spoofer():
     speed = 42
     incline = 0
     resistance = 1
-    
-    
+        
     while 1:
         req = receive()
+        
+        if req == None:
+            continue
+        
+        try:
+            req.cmd_type
+            req.addr
+            req.data_str
+        except AttributeError:
+            continue
         
         if req.cmd_type == b'03': # Read
             if req.addr.startswith(b'4'):
@@ -753,7 +798,7 @@ def spoofer():
             elif req.addr.startswith(b'6'):
                 res = make_response(req, resistance)
             else:
-                print('[Shortbus:Warning] I dont have a response for this READ, yet... ')
+                print(bcolors.WARNING + '[Shortbus:Warning] I dont have a response for this READ, yet... ' + bcolors.ENDC)
                 res.print_out()
         elif req.cmd_type == b'06': # Write
             if req.addr.startswith(b'4'):
@@ -761,12 +806,16 @@ def spoofer():
                 print('[Shortbus:Write] Incline: ' + str(incline))
             elif req.addr.startswith(b'5'):
                 speed = int(req.data_str)
+                print('[Shortbus:Write] Speed: ' + str(speed))
             elif req.addr.startswith(b'6'):
                 resistance = int(req.data_str)
                 print('[Shortbus:Write] Resistance: ' + str(resistance))
+            else:
+                print(bcolors.WARNING + '[Shortbus:Warning] I dont have a response for this WRITE, yet... ' + bcolors.ENDC)
+                res.print_out()
             res = make_response(req)
         else:
-            print('[Shortbus:Error] Something is wrong with this message! ' + str(req))
+            print(bcolors.FAIL + '[Shortbus:Error] Something is wrong with this message! ' + str(req) + bcolors.ENDC)
             res.print_out()
             break
         
@@ -775,8 +824,8 @@ def spoofer():
 
 # !!! HERE BE DRAGONS !!!
 # or, some development things...
-#monitor(True)
+#monitor()
 #receive(True)
 #sb_req = parse_message(b':510300020000AA\r\n')
 #make_response(sb_req, 16)
-peripheral_test()
+#peripheral_test()

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from flask import Flask, render_template, request
-from flask_socketio import SocketIO, emit
+#from flask_socketio import SocketIO, emit
 from threading import Thread, Event
 from time import sleep
 from typing import List
@@ -17,18 +17,18 @@ import shortbus
 import threading
 import time
 
-load_dotenv()
+#load_dotenv()
 
 #os.environ['GPIOZERO_PIN_FACTORY'] = os.environ.get('GPIOZERO_PIN_FACTORY', 'mock') # uncomment for dev on a non-pi machine
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-socketio = SocketIO(app, async_mode=None)
+#app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
+#socketio = SocketIO(app, async_mode=None)
 
 devices = { }
 
 shortbus_monitor_worker = None
-shortbus_socket_update_worker = None
+#shortbus_socket_update_worker = None
 stop_shortbus_mon_event = Event()
 
 @dataclass
@@ -116,31 +116,47 @@ def statusPage():
     strokeRpm = request.args.get('strokeRpm', False)
     return render_template('edit.html', bcmPin=bcmPin, rpm=rpm, strokeRpm=strokeRpm)
 
+rs485FirstVisit = True
+
 @app.route('/rs485')
 def rs485Page():
-    return render_template('rs485.html')
-
-@socketio.on('connect')
-def testSocketConnect():
-    print('socket.io connected')
+    global rs485FirstVisit
     
-@socketio.on('disconnect')
-def testSocketDisconnect():
-    print('socket.io disconnected')
+    # only start the worker on the first visit, not when the page refreshes, this is why we want sockets... ugh
+    if rs485FirstVisit: 
+        rs485FirstVisit = False
+        shortbus_monitor_worker = threading.Thread(target=shortbus.monitor, daemon=True)
+        shortbus_monitor_worker.start()
+        
+    sorted_data = dict(sorted(shortbus.read_monitor_dict().items()))
+        
+    return render_template('rs485.html', data=sorted_data)
 
-@socketio.on('connect', namespace='/rs485socket')
-def rs485SocketConnect():
-    print('RS-485 Socket Client: CONNECTED')
-    shortbus_monitor_worker = threading.Thread(target=shortbus.monitor, daemon=True)
-    shortbus_monitor_worker.start()
-    shortbus_socket_update_worker = threading.Thread(target=shortbusSocketUpdate, daemon=True)
-    shortbus_socket_update_worker.start()
+@app.template_filter('b_to_str')
+def b_to_str(b):
+    return str(b).replace('b', '').replace('\'', '')
 
-@socketio.on('disconnect', namespace='/rs485socket')
-def rs485SocketDisconnect():
-    print('RS-485 Socket Client: DISCONNECTED')
-    shortbus.stop_monitor()
-    stop_shortbus_mon_event.set()
+#@socketio.on('connect')
+#def testSocketConnect():
+#    print('socket.io connected')
+    
+#@socketio.on('disconnect')
+#def testSocketDisconnect():
+#    print('socket.io disconnected')
+
+#@socketio.on('connect', namespace='/rs485socket')
+#def rs485SocketConnect():
+#    print('RS-485 Socket Client: CONNECTED')
+#    shortbus_monitor_worker = threading.Thread(target=shortbus.monitor, daemon=True)
+#    shortbus_monitor_worker.start()
+#    shortbus_socket_update_worker = threading.Thread(target=shortbusSocketUpdate, daemon=True)
+#    shortbus_socket_update_worker.start()
+
+#@socketio.on('disconnect', namespace='/rs485socket')
+#def rs485SocketDisconnect():
+#    print('RS-485 Socket Client: DISCONNECTED')
+#    shortbus.stop_monitor()
+#    stop_shortbus_mon_event.set()
 
 @app.route('/set', methods=['POST'])
 def set():
@@ -201,17 +217,18 @@ def stopAll():
             device.keepRunning = False
             device.pedalThread = None
 
-def shortbusSocketUpdate():
-    while not stop_shortbus_mon_event.is_set():
-        if shortbus.monitor_q.empty():
-            time.sleep(0.01)
-            continue
-        
-        msg = shortbus.monitor_q.get()
-        emit('rs485MonUpdate', {'data':msg}, namespace='/rs485socket')
-        shortbus.monitor_q.task_done()
-        time.sleep(0.01)
+#def shortbusSocketUpdate():
+#    while not stop_shortbus_mon_event.is_set():
+#        if shortbus.monitor_q.empty():
+#            time.sleep(0.01)
+#            continue
+#        
+#        msg = shortbus.monitor_q.get()
+#        emit('rs485MonUpdate', {'data':msg}, namespace='/rs485socket')
+#        shortbus.monitor_q.task_done()
+#        time.sleep(0.01)
 
-if __name__ == '__main__':
-    from waitress import serve
-    serve(socketio.run(app, host='0.0.0.0', port=5000))
+#if __name__ == '__main__':
+#    from waitress import serve
+#    serve(socketio.run(app, host='0.0.0.0', port=5000))
+
