@@ -3,6 +3,7 @@ from datetime import datetime
 from threading import Thread, Event, Lock
 import os
 import queue
+import random
 import serial
 import serial.rs485
 import string
@@ -384,6 +385,8 @@ receiving = False
 
 monitor_dict = {}
 monitor_dict_lock = Lock()
+target_speed = 0
+stroke_rpm = False
 
 class SpooferThread(threading.Thread):
     def __init__(self,  *args, **kwargs):
@@ -486,6 +489,75 @@ class MonitorThread(threading.Thread):
                     monitor_q.put(msg)
         
             time.sleep(0.005)
+
+class PedalThread(threading.Thread):
+    def __init__(self, stroke=False, *args, **kwargs):
+        super(PedalThread, self).__init__(*args, **kwargs)
+        self._stop_event = threading.Event()
+        self.setDaemon(True)
+        self.stroke = stroke
+        
+    def stop(self):
+        self._stop_event.set()
+        target_speed = 0
+        self.set_speed(0)
+
+    def stopped(self):
+        return self._stop_event.is_set()
+    
+    def run(self):
+        global stroke_rpm
+        
+        while not self.stopped():
+            time.sleep(1)
+            
+            if stroke_rpm:
+                speedValue = self.run_stroke()
+            else:
+                speedValue = self.run_constant()
+            
+    def run_constant(self):
+        global target_speed
+        
+        speedValue = target_speed + random.choices([-1, 0, 1], weights=[0.15, 0.7, 0.15], k=1)[0]
+        speedValue = max(0, min(speedValue, 9999))
+        self.set_speed(speedValue)
+    
+    def run_stroke(self):
+        global target_speed
+        
+        jitterSpm = target_speed + random.choices([-1, 0, 1], weights=[0.15, 0.7, 0.15], k=1)[0]
+        jitterSpm = max(0, min(jitterSpm, 9999))
+        strokeDelaySec = (14110.1 / math.pow(jitterSpm, 0.988567318803339)) / 1000.0
+        timerSec = 0.0        
+        while timerSec < strokeDelaySec:
+            rpm = self.simpleLerp(timerSec / strokeDelaySec, 300, 900)
+            delaySec = (14110.1 / math.pow(rpm, 0.988567318803339)) / 1000.0
+            speedValue = self.simpleLerp(timerSec / strokeDelaySec, 300, 900)
+            self.set_speed(speedValue)
+            time.sleep(delaySec)
+            timerSec += delaySec
+        while timerSec > 0:
+            rpm = self.simpleLerp(timerSec / strokeDelaySec, 300, 900)
+            delaySec = (14110.1 / math.pow(rpm, 0.988567318803339)) / 1000.0
+            speedValue = self.simpleLerp(timerSec / strokeDelaySec, 900, 300)
+            self.set_speed(speedValue)
+            time.sleep(delaySec)
+            timerSec -= delaySec
+    
+    def simpleLerp(self, alpha, at0, at1):
+        return ((1 - alpha) * at0) + (alpha * at1)
+    
+    def set_speed(self, value):
+        # raw_data, msg_len, msg_type_str, addr, addr_str, cmd_type, cmd_type_str, data_len, cmd, cmd_dir, cmd_str, data, data_str, checksum
+        data_len = 2 # TODO: get this from a dict or something
+        bdata_len = '{0:0{1}x}'.format(data_len, 2).encode('utf-8')
+        bhexval = '{0:0{1}x}'.format(value, data_len * 2).upper().encode('utf-8')
+        bmsg = b'5103' + bdata_len + b'0102' + bhexval
+        bchecksum = calculate_checksum(bmsg).upper().encode('utf-8')
+        bmsg = b':' + bmsg + bchecksum + b'\r\n'
+        sb_msg = parse_message(bmsg)
+        write_monitor_dict(sb_msg)
 
 def write_monitor_dict(msg):
     global monitor_dict

@@ -29,8 +29,8 @@ devices = { }
 
 shortbus_worker = None
 shortbus_worker_mode = "none"
-#shortbus_socket_update_worker = None
 stop_shortbus_worker_event = Event()
+shortbus_pedal_worker = None
 
 @dataclass
 class ConsoleDevice:
@@ -120,9 +120,17 @@ def statusPage():
 @app.route('/rs485', methods=['GET'])
 def rs485Page():
     global shortbus_worker_mode
+    global shortbus_pedal_worker
     
     sorted_data = dict(sorted(shortbus.read_monitor_dict().items()))
-    return render_template('rs485.html', currentModeStr=shortbus_worker_mode, data=sorted_data)
+    if shortbus_pedal_worker:
+        pstatus = 'RUNNING'
+    else:
+        pstatus = 'STOPPED'
+        
+    targetRpm = str(shortbus.target_speed)
+    
+    return render_template('rs485.html', currentModeStr=shortbus_worker_mode, targetRpm=targetRpm, pedalStatus=pstatus, data=sorted_data)
 
 @app.template_filter('b_to_str')
 def b_to_str(b):
@@ -162,7 +170,6 @@ def toggleRs485Spoofer():
         return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Started the SPOOFER.'}), 200, {'ContentType':'application/json'}
     
     if shortbus_worker_mode == "SPOOFER": # stop the spoofer
-        #shortbus.stop_spoofing()
         shortbus_worker.stop()
         shortbus_worker.join()
         shortbus_worker = None
@@ -173,13 +180,41 @@ def toggleRs485Spoofer():
     
     return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'Not sure how we got into this state.'}), 500, {'ContentType':'application/json'}
 
+@app.route('/rs485pedal', methods=['POST'])
+def rs485Pedal():
+    global shortbus_pedal_worker
+    
+    reqData = request.get_json(force=True)
+    start = bool(reqData['start'])
+    strokeRpm = bool(reqData['strokeRpm'])
+    shortbus.stroke_rpm = strokeRpm
+    
+    if not start and shortbus_pedal_worker:
+        shortbus_pedal_worker.stop()
+        shortbus_pedal_worker.join()
+        shortbus_pedal_worker = None
+        return json.dumps({'success':True, 'mode':'STOPPED', 'msg':'Stopped the pedaling.'}), 200, {'ContentType':'application/json'}
+    elif not start and not shortbus_pedal_worker:
+        return json.dumps({'success':False, 'mode':'STOPPED', 'msg':'Pedaler was not running.'}), 200, {'ContentType':'application/json'}
+    elif start and not shortbus_pedal_worker:
+        shortbus_pedal_worker = shortbus.PedalThread()
+        shortbus_pedal_worker.start()
+        return json.dumps({'success':True, 'mode':'RUNNING', 'msg':'Started the pedaling.'}), 200, {'ContentType':'application/json'}
+    elif start and shortbus_pedal_worker:
+        return json.dumps({'success':False, 'mode':'RUNNING', 'msg':'Pedaler was already running.'}), 200, {'ContentType':'application/json'}
+    else:
+        return json.dumps({'success':False, 'mode':'UNKNOWN', 'msg':'Something has gone horribly wrong!'}), 500, {'ContentType':'application/json'}
+
 @app.route('/rs485set', methods=['POST'])
 def rs485Set():
     try:
         reqData = request.get_json(force=True)
         key = reqData['manualKey'].encode('utf-8')
         value = int(reqData['manualValue'])
-        strokeRpm = int(reqData['strokeRpm'])
+                
+        if key == b'5102':
+            shortbus.target_speed = value
+        
         # raw_data, msg_len, msg_type_str, addr, addr_str, cmd_type, cmd_type_str, data_len, cmd, cmd_dir, cmd_str, data, data_str, checksum
         data_len = 2 # TODO: get this from a dict or something
         bdata_len = '{0:0{1}x}'.format(data_len, 2).encode('utf-8')
