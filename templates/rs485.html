@@ -6,7 +6,78 @@
 	<script type="text/javascript">
 		window.onload = onLoad
 		function onLoad(){
-		
+			$("#submit").click (function() { onSubmit()})
+			$("#monitor").click (function() { onMonitor()})
+			$("#spoofer").click (function() { onSpoofer()})
+		}
+		function onMonitor(){
+			$.ajax({
+				url: "rs485monitor",
+				type: "POST",
+				contentType: "application/json",
+				data: JSON.stringify({ }),
+				dataType: "json",
+				success: function (result){
+					console.log(result);
+					$("#currentMode").html(result.mode);
+					$("#modeMsg").html(result.msg);
+				},
+				error:function(err){
+					console.log(err);
+					$("#currentMode").html(err.mode);
+					$("#modeMsg").html(err.status + " -- " + err.msg);
+				}
+			});
+		}
+		function onSpoofer(){
+			$.ajax({
+				url: "rs485spoofer",
+				type: "POST",
+				contentType: "application/json",
+				data: JSON.stringify({ }),
+				dataType: "json",
+				success: function (result){
+					console.log(result);
+					$("#currentMode").html(result.mode);
+					$("#modeMsg").html(result.msg);
+				},
+				error:function(err){
+					console.log(err);
+					$("#currentMode").html(err.mode);
+					$("#modeMsg").html(err.status + " -- " + err.msg);
+				}
+			});
+		}
+		function onSubmit(){
+			let manualKeyValue = getManualKeyValue();
+			let manualValueValue = getManualValueValue();
+			let strokeRpmValue = getStrokeRpmValue();
+			history.pushState(null,"","?manualKey=" + manualKeyValue + "&manualValue=" + manualValueValue + "&strokeRpm=" + strokeRpmValue);
+			$("#status").html("");
+			$.ajax({
+				url: "rs485set",
+				type: "POST",
+				contentType: "application/json",
+				data: JSON.stringify({ manualKey : manualKeyValue, manualValue: manualValueValue, strokeRpm: strokeRpmValue }),
+				dataType: "json",
+				success: function (result){
+					console.log(result);
+					$("#status").html(result.msg);
+				},
+				error:function(err){
+					console.log(err);
+					$("#status").html(" Error: " + err.responseJSON.msg);
+				}
+			})
+		}
+		function getManualKeyValue(){
+			return $("#manualKey").val();
+		}
+		function getManualValueValue(){
+			return $("#manualValue").val();
+		}
+		function getStrokeRpmValue(){
+			return $("#strokeRpm").is(":checked");
 		}
 		setTimeout(function(){
             window.location.reload(1);
@@ -26,7 +97,36 @@
 </head>
 <body>
 	<h1>iFit Shortbus (RS-485) Manager</h1>
-	<div id="log"></div>
+	<p>This page automatically refreshes every 5 seconds... for now, until someone gets sockets working. #inner-sourcing</p>
+	<h2>Mode</h2>
+	<p>
+		The Pi can operate in two modes.
+		<ul>
+			<li><b>Monitor</b> - Both ends of the cable are plugged into the Pi and you just want to monitor what is coming across the bus.</li>
+			<li><b>Spoofer</b> - Only the console end of the cable is plugged into the Pi and you want the Pi to pretend to be the hardware like the tach and incline motor(s).</li>
+		</ul>
+		<button id="monitor">Monitor</button>&nbsp;<button id="spoofer">Spoofer</button><br>
+		<br>
+		{% if currentModeStr %} 
+		<b>Current Mode:</b>&nbsp;<span id="currentMode">{{currentModeStr}}</span><br>
+		{% else %}
+		<b>Current Mode:</b>&nbsp;<span id="currentMode"></span><br>
+		{% endif %}
+		<span id="modeMsg"></span><br>
+	</p>
+	<h2>Manual Values</h2>
+	<p>The key should be 4 characters. The first two are the address and the second two are the command. See the <a href="https://github.com/ifit/SparkyWikiJS/blob/8afbadd93fd92aa286250f388dc60aeea42580d2/icon-protocols/shortbus.md" target="_blank" rel="noopener noreferrer">Shortbus Wiki</a> to find the various addresses and commands within each address. Setting a value does not guarantee it will be written/applied. It will only be applied the next time it is asked for by the primary device on the bus. And, it might get overwritten by the primary if it decides to. For example, if you try to set the incline to 150 it will not get applied because the console buttons and wolf are the only things that can set the incline and it just gets applied to the motor which the Pi is pretending to be.</p>
+	Key: <input type="text" id="manualKey" value="{{manualKey}}"><br>
+	Value: <input type="text" id="manualValue" value="{{manualValue}}"><br>
+	Stroke RPMs <input type="checkbox" id="strokeRpm" value="{{strokeRpm}}"><br>
+	<button id="submit">Send</button>&nbsp;<span id="status"></span><br>
+	<br>
+	<br>
+	<a href='/'><button>Home</button></a>
+	<br>
+	<br>
+	<h2>Keys &amp; Values</h2>
+	<p>These are the values that have been written to different addresses/commands on the bus.</p>
 	<table id="statusTable" style="width:90%;">
 		<thead>
 			<tr>

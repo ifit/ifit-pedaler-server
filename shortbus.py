@@ -366,79 +366,160 @@ class ShortbusMessage:
     def to_bin_res_r(self):
         content = self.addr + self.cmd_type + self.data_len + self.cmd + self.data
         self.checksum = calculate_checksum(content).upper()
-        return b':' + content + self.checksum.encode('ascii') + b'\r\n'
+        return b':' + content + self.checksum.encode('utf-8') + b'\r\n'
         
     def to_bin_res_w(self):
         content = self.addr + self.cmd_type + self.cmd + self.data
         self.checksum = calculate_checksum(content).upper()
-        return b':' + content + self.checksum.encode('ascii') + b'\r\n'
+        return b':' + content + self.checksum.encode('utf-8') + b'\r\n'
 
 # TODO: why do these two echoes error?
 os.system("echo 18 > /sys/class/gpio/export")
 os.system("echo out > /sys/class/gpio/gpio18/direction")
 
-ser = serial.rs485.RS485(port='/dev/ttyS0', baudrate=38400, bytesize=7, parity='N', stopbits=2, timeout=0.2)
+ser = serial.rs485.RS485(port='/dev/ttyS0', baudrate=38400, bytesize=serial.SEVENBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_TWO, timeout=0.2)
 ser.rs485_mode = serial.rs485.RS485Settings(False,True)
 
-monitoring = False
 receiving = False
 
 monitor_dict = {}
 monitor_dict_lock = Lock()
-monitor_count = 0
+
+class SpooferThread(threading.Thread):
+    def __init__(self,  *args, **kwargs):
+        super(SpooferThread, self).__init__(*args, **kwargs)
+        self._stop_event = threading.Event()
+        self.setDaemon(True)
+        
+    def stop(self):
+        self._stop_event.set()
+        
+        with monitor_q.mutex:
+            monitor_q.queue.clear()
+
+    def stopped(self):
+        return self._stop_event.is_set()
+    
+    def run(self):
+        while not self.stopped():
+            req = receive()
+        
+            if req == None:
+                time.sleep(0.01)
+                continue
+        
+            try:
+                req.cmd_type
+                req.addr
+                req.data_str
+            except AttributeError:
+                time.sleep(0.01)
+                continue
+        
+            key = get_dict_key(req)
+                
+            if req.cmd_type == b'03': # Read
+                val = read_value_from_monitor_dict(key, -1234567890)
+                if val == -1234567890:
+                    print(bcolors.WARNING + '[Shortbus:Warning] I don\'t have a response for this READ! Did you start spoofing after turning the machine on? ' + bcolors.ENDC)
+                    req.print_out()
+                    continue
+                val = int(val, 16)
+                res = make_response(req, val)
+            elif req.cmd_type == b'06': # Write
+                write_monitor_dict(req)
+                print('[Shortbus:Write] ' + req.addr_str + ' ' + req.cmd_str + ': ' + req.data_str)
+                res = make_response(req)
+                if key.startswith(b'4'): #need to write to current incline for that motor as well
+                    cmd_dict = addr_to_cmd_dict[b'4']
+                    cmd_str = cmd_dict[b'02']
+                    req2 = ShortbusMessage(req.raw_data, req.msg_len, req.msg_type_str, req.addr, req.addr_str, req.cmd_type, req.cmd_type_str, req.data_len, b'0002', req.cmd_dir, cmd_str, req.data, req.data_str, req.checksum)
+                    write_monitor_dict(req2)
+                if key.startswith(b'6'): #need to write to current resistance for that motor as well
+                    cmd_dict = addr_to_cmd_dict[b'6']
+                    cmd_str = cmd_dict[b'06']
+                    req2 = ShortbusMessage(req.raw_data, req.msg_len, req.msg_type_str, req.addr, req.addr_str, req.cmd_type, req.cmd_type_str, req.data_len, b'0006', req.cmd_dir, cmd_str, req.data, req.data_str, req.checksum)
+                    write_monitor_dict(req2)
+            else:
+                print(bcolors.FAIL + '[Shortbus:Error] Something is wrong with this message! ' + str(req) + bcolors.ENDC)
+                res.print_out()
+                break
+        
+            send_sb(res)
+            time.sleep(0.01)
 
 # This should mostly be used for development. It just
 # monitors the RS-485 traffic and prints out the parsed
 # messages to the console. You can set monitoring = False
 # to stop it from other scripts. If its eating too much
 # CPU, you can uncomment the time.sleeps(..) and adjust
-# the wait times. 
-def monitor(print_out=False, add_to_q=False):
-    global monitoring
-    global monitor_count
-    
-    monitoring = True
-    
-    with monitor_q.mutex:
-        monitor_q.queue.clear()
-    
-    while monitoring:
-        sdata = try_read_msg()
-        #print(sdata)
-        if sdata != b'':
-            msg = parse_message(sdata, print_out)
-            if msg == None:
-                continue
-            
-            update_monitor_dict(msg)
-            
-            if add_to_q:
-                monitor_q.put(msg)
+# the wait times.
+class MonitorThread(threading.Thread):
+    def __init__(self, print_out=False, add_to_q=False, *args, **kwargs):
+        super(MonitorThread, self).__init__(*args, **kwargs)
+        self._stop_event = threading.Event()
+        self.setDaemon(True)
+        self.print_out = print_out
+        self.add_to_q = add_to_q
         
-        time.sleep(0.005)
-        #monitor_count += 1
-        #if monitor_count % 10 == 0:
-            #print(monitor_dict)
-                
-def update_monitor_dict(msg):    
+    def stop(self):
+        self._stop_event.set()
+
+    def stopped(self):
+        return self._stop_event.is_set()
+    
+    def run(self):
+        with monitor_q.mutex:
+            monitor_q.queue.clear()
+    
+        while not self.stopped():
+            sdata = try_read_msg()
+            #print(sdata)
+            if sdata != b'':
+                msg = parse_message(sdata, self.print_out)
+                if msg == None:
+                    continue
+            
+                write_monitor_dict(msg)
+            
+                if self.add_to_q:
+                    monitor_q.put(msg)
+        
+            time.sleep(0.005)
+
+def write_monitor_dict(msg):
+    global monitor_dict
     monitor_dict_lock.acquire()
-    key = msg.addr + msg.cmd[2:]
+    key = get_dict_key(msg)
     monitor_dict[key] = msg
     monitor_dict_lock.release()
-    
+    return key
+
+def get_dict_key(msg):
+    return msg.addr + msg.cmd[2:]
+
 def read_monitor_dict():
+    global monitor_dict
     monitor_dict_lock.acquire()
-    local_dict = monitor_dict
+    copy = monitor_dict
     monitor_dict_lock.release()
-    return local_dict
+    return copy
+
+def read_value_from_monitor_dict(key, default=0):
+    monitor_dict_lock.acquire()
+    try:
+        msg = monitor_dict[key]
+        value = msg.data
+    except:
+        value = default
+    monitor_dict_lock.release()
     
-def stop_monitor():
-    global monitoring
-    
-    monitoring = False
-    
-    with monitor_q.mutex:
-        monitor_q.queue.clear()
+    return value
+
+def clear_monitor_dict():
+    monitor_dict_lock.acquire()
+    monitor_dict.clear()
+    monitor_dict_lock.release()
 
 # Runs until it thinks it found a message and returns it.
 # You should not call this while monitoring=True!
@@ -450,11 +531,7 @@ def receive(print_out=False):
     
     while receiving:
         sdata = try_read_msg()
-        #os.system("echo 0 > /sys/class/gpio/gpio18/value")
-        #time.sleep(0.005)
-        #count = ser.inWaiting
-        #if(count != 0):
-        #    x = ser.readline()
+        
         if sdata != b'':
             msg = parse_message(sdata, print_out)
             break
@@ -539,8 +616,8 @@ def make_response(sb_req, val=0):
 #   the ShortbusMessage response object
 def make_read_response(sb_req, val):
     data_len = 2 # TODO: get this from a dict or something
-    bhexval = '{0:0{1}x}'.format(val, data_len * 2).encode('ascii')
-    bdata_len = '{0:0{1}x}'.format(data_len, 2).encode('ascii')
+    bhexval = '{0:0{1}x}'.format(val, data_len * 2).upper().encode('utf-8')
+    bdata_len = '{0:0{1}x}'.format(data_len, 2).encode('utf-8')
     res = ShortbusMessage('', -1, '', sb_req.addr, '', b'03', '', bdata_len, b'01' + sb_req.cmd[2:], 'RESPONSE', '', bhexval, '', '')
     
     return res
@@ -616,7 +693,7 @@ def check_message(msg):
 
 # get the checksum from the message
 def get_checksum(msg):
-    return msg[-4:-2].decode('ascii')
+    return msg[-4:-2].decode('utf-8')
 
 # Supply either a full message, ex. b':510300020000AA\r\n'
 # or just the "payload", ex. b'510300020000'
@@ -628,7 +705,7 @@ def calculate_checksum(msg):
     if tmpmsg.endswith(b'\r\n'):
         tmpmsg = tmpmsg[:-4] # remove the \r\n and the checksum
 
-    tmpmsg = tmpmsg.decode('ascii')
+    tmpmsg = tmpmsg.decode('utf-8')
     split_tmp = [tmpmsg[i:i+2] for i in range(0, len(tmpmsg), 2)]
     #print(split_tmp)
     sum = 0x0
@@ -767,65 +844,20 @@ def get_data_str(msg):
 # Cause its easy to forget what the ShortbusMessage properties are all the way down here:
 # raw_data, msg_len, msg_type_str, addr, addr_str, cmd_type, cmd_type_str, data_len, cmd, cmd_dir, cmd_str, data, data_str, checksum
 
-def peripheral_test():
-    spooferThread = threading.Thread(target=spoofer, daemon=True)
-    spooferThread.start()
-    spooferThread.join()
+#def spoofer_test():
+#    spooferThread = SpooferThread()
+#    spooferThread.start()
+#    spooferThread.join()
 
-def spoofer():
-    speed = 42
-    incline = 0
-    resistance = 1
-        
-    while 1:
-        req = receive()
-        
-        if req == None:
-            continue
-        
-        try:
-            req.cmd_type
-            req.addr
-            req.data_str
-        except AttributeError:
-            continue
-        
-        if req.cmd_type == b'03': # Read
-            if req.addr.startswith(b'4'):
-                res = make_response(req, incline)
-            elif req.addr.startswith(b'5'):
-                res = make_response(req, speed)
-            elif req.addr.startswith(b'6'):
-                res = make_response(req, resistance)
-            else:
-                print(bcolors.WARNING + '[Shortbus:Warning] I dont have a response for this READ, yet... ' + bcolors.ENDC)
-                res.print_out()
-        elif req.cmd_type == b'06': # Write
-            if req.addr.startswith(b'4'):
-                incline = int(req.data_str)
-                print('[Shortbus:Write] Incline: ' + str(incline))
-            elif req.addr.startswith(b'5'):
-                speed = int(req.data_str)
-                print('[Shortbus:Write] Speed: ' + str(speed))
-            elif req.addr.startswith(b'6'):
-                resistance = int(req.data_str)
-                print('[Shortbus:Write] Resistance: ' + str(resistance))
-            else:
-                print(bcolors.WARNING + '[Shortbus:Warning] I dont have a response for this WRITE, yet... ' + bcolors.ENDC)
-                res.print_out()
-            res = make_response(req)
-        else:
-            print(bcolors.FAIL + '[Shortbus:Error] Something is wrong with this message! ' + str(req) + bcolors.ENDC)
-            res.print_out()
-            break
-        
-        send_sb(res)
-        
+#def monitor_test():
+#    monitorThread = MonitorThread(print_out=True,add_to_q=True)
+#    monitorThread.start()
+#    monitorThread.join()
 
 # !!! HERE BE DRAGONS !!!
 # or, some development things...
-#monitor()
 #receive(True)
 #sb_req = parse_message(b':510300020000AA\r\n')
 #make_response(sb_req, 16)
-#peripheral_test()
+#spoofer_test()
+#monitor_test()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
-from dotenv import load_dotenv
+#from dotenv import load_dotenv
 from flask import Flask, render_template, request
 #from flask_socketio import SocketIO, emit
 from threading import Thread, Event
@@ -27,9 +27,10 @@ app = Flask(__name__)
 
 devices = { }
 
-shortbus_monitor_worker = None
+shortbus_worker = None
+shortbus_worker_mode = "none"
 #shortbus_socket_update_worker = None
-stop_shortbus_mon_event = Event()
+stop_shortbus_worker_event = Event()
 
 @dataclass
 class ConsoleDevice:
@@ -44,7 +45,7 @@ class PedalLooper(threading.Thread):
     def __init__(self, gpioPin, args=(), kwargs=None):
         threading.Thread.__init__(self, args=(), kwargs=None)
         self.gpioPin = gpioPin
-        self.daemon = True
+        self.setDaemon(True)
 
     def run(self):
         device = devices[self.gpioPin]
@@ -116,25 +117,82 @@ def statusPage():
     strokeRpm = request.args.get('strokeRpm', False)
     return render_template('edit.html', bcmPin=bcmPin, rpm=rpm, strokeRpm=strokeRpm)
 
-rs485FirstVisit = True
-
-@app.route('/rs485')
+@app.route('/rs485', methods=['GET'])
 def rs485Page():
-    global rs485FirstVisit
+    global shortbus_worker_mode
     
-    # only start the worker on the first visit, not when the page refreshes, this is why we want sockets... ugh
-    if rs485FirstVisit: 
-        rs485FirstVisit = False
-        shortbus_monitor_worker = threading.Thread(target=shortbus.monitor, daemon=True)
-        shortbus_monitor_worker.start()
-        
     sorted_data = dict(sorted(shortbus.read_monitor_dict().items()))
-        
-    return render_template('rs485.html', data=sorted_data)
+    return render_template('rs485.html', currentModeStr=shortbus_worker_mode, data=sorted_data)
 
 @app.template_filter('b_to_str')
 def b_to_str(b):
     return str(b).replace('b', '').replace('\'', '')
+
+@app.route('/rs485monitor', methods=['POST'])
+def toggleRs485Monitor():
+    global shortbus_worker
+    global shortbus_worker_mode 
+
+    if shortbus_worker == None:
+        shortbus_worker = shortbus.MonitorThread()
+        shortbus_worker.start()
+        shortbus_worker_mode = "MONITOR"
+        return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Started the MONITOR.'}), 200, {'ContentType':'application/json'} 
+    
+    if shortbus_worker_mode == "MONITOR": # stop the monitor
+        shortbus_worker.stop()
+        shortbus_worker.join()
+        shortbus_worker = None
+        shortbus_worker_mode = "none"
+        return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Stopped the MONITOR.'}), 200, {'ContentType':'application/json'}
+    elif shortbus_worker_mode == "SPOOFER": # the spoofer is running
+        return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'The spoofer is currently running. Stop it first.'}), 200, {'ContentType':'application/json'}
+    
+    return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'Not sure how we got into this state.'}), 500, {'ContentType':'application/json'}
+
+@app.route('/rs485spoofer', methods=['POST'])
+def toggleRs485Spoofer():
+    global shortbus_worker
+    global shortbus_worker_mode 
+
+    if shortbus_worker == None: # nothing active, start the spoofer
+        shortbus_worker = shortbus.SpooferThread()
+        shortbus_worker.start()
+        shortbus_worker_mode = "SPOOFER"
+        return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Started the SPOOFER.'}), 200, {'ContentType':'application/json'}
+    
+    if shortbus_worker_mode == "SPOOFER": # stop the spoofer
+        #shortbus.stop_spoofing()
+        shortbus_worker.stop()
+        shortbus_worker.join()
+        shortbus_worker = None
+        shortbus_worker_mode = "none"
+        return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Stopped the SPOOFER.'}), 200, {'ContentType':'application/json'}
+    elif shortbus_worker_mode == "MONITOR": # the monitor is running
+        return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'The monitor is currently running. Stop it first.'}), 200, {'ContentType':'application/json'}
+    
+    return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'Not sure how we got into this state.'}), 500, {'ContentType':'application/json'}
+
+@app.route('/rs485set', methods=['POST'])
+def rs485Set():
+    try:
+        reqData = request.get_json(force=True)
+        key = reqData['manualKey'].encode('utf-8')
+        value = int(reqData['manualValue'])
+        strokeRpm = int(reqData['strokeRpm'])
+        # raw_data, msg_len, msg_type_str, addr, addr_str, cmd_type, cmd_type_str, data_len, cmd, cmd_dir, cmd_str, data, data_str, checksum
+        data_len = 2 # TODO: get this from a dict or something
+        bdata_len = '{0:0{1}x}'.format(data_len, 2).encode('utf-8')
+        bhexval = '{0:0{1}x}'.format(value, data_len * 2).upper().encode('utf-8')
+        bmsg = key[0:2] + b'03' + bdata_len + b'01' + key[2:] + bhexval
+        bchecksum = shortbus.calculate_checksum(bmsg).upper().encode('utf-8')
+        bmsg = b':' + bmsg + bchecksum + b'\r\n'
+        sb_msg = shortbus.parse_message(bmsg)
+        shortbus.write_monitor_dict(sb_msg)
+    
+        return json.dumps({'success':True, 'msg':'Set ' + str(key)[2:-1] + ' to ' + str(value) + '.'}), 200, {'ContentType':'application/json'}
+    except KeyError:
+        return json.dumps({'success':False, 'msg':'You probably supplied an invalid key (address+command).'}), 400, {'ContentType':'application/json'}
 
 #@socketio.on('connect')
 #def testSocketConnect():
