@@ -51,6 +51,24 @@ sudo supervisorctl update
     "bcmPin": "[pin number]"
 }
 ```
+## RS-485 
+* This also now supports RS-485 equipped consoles. See [this Confluence article](https://ifitdev.atlassian.net/wiki/spaces/WAD/pages/2588016659/WIP+How+to+Shortbus+aka+RS-485+with+a+Raspberry+Pi) for the hardware you'll need and how to set it up.
+* You can visit `http://192.168.1.22/rs485` to monitor and spoof the RS-485 equipment with your Raspberry Pi. 
+* The API for RS-485 is a little different. It is best to start the spoofer via POSTing to `http://192.168.1.22/rs485spoofer` BEFORE turning on the console. However, most things will still work if you don't, ymmv. POST to that address again if you want to shut the spoofer down. It is a toggle.
+* You can set values by POSTing to `http://192.168.1.22/rs485set`. Its looking for a key and a value in the JSON like so. The first two digits of the key are the address and the second two are the command for that address. For additional details on the keys and values, see the [documentation](https://github.com/ifit/SparkyWikiJS/blob/master/icon-protocols/shortbus.md). FYI, the RPM/Speed key is '5102'. ;)  
+```
+{
+    'manualKey':'5102'
+    'manualValue':'87'
+}
+```
+* The pedaling is started and stopped via POSTing to `http://192.168.1.22/rs485pedal`. It is expecting two booleans, one for starting/stopping the pedaling and the other for setting it to "constant" rpm or "stroking" the rpm like on a rower. 
+```
+{
+    'start':'[True/False]'
+    'strokeRpm':'[True/False]'
+}
+```
 
 # Usage - Android app
 * Install "Pedal4Me" from the releases page
