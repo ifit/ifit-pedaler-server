@@ -43,6 +43,7 @@
 				<th>Pin #</th>
 				<th>RPM</th>
 				<th>Stroke</th>
+				<th>RS-485</th>
 				<th>Active</th>
 				<th>Edit</th>
 			</tr>
@@ -54,8 +55,13 @@
 				<td>{{device.bcmPin}}</td>
 				<td>{{device.rpm}}</td>
 				<td>{{device.strokeRpm}}</td>
+				<td>{{device.useRs485}}</td>
 				<td>{{device.keepRunning}}</td>
+				{% if device.useRs485 %}
+				<td><a href='/rs485'><button>&#9999;</button></a></td>
+				{% else %}
 				<td><a href='/edit?bcmPin={{device.bcmPin}}'><button>&#9999;</button></a><button id='stop{{device.bcmPin}}'>X</button></a></td>
+				{% endif %}
 			</tr>
 			{% endfor %}
 		</tbody>

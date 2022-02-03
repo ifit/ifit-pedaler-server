@@ -34,12 +34,12 @@ shortbus_pedal_worker = None
 
 @dataclass
 class ConsoleDevice:
-    useRs485: bool
     bcmPin: int
     rpm: int
     strokeRpm: bool
     pedalThread: object
     keepRunning: bool
+    useRs485: bool
 
 class PedalLooper(threading.Thread):
     def __init__(self, gpioPin, args=(), kwargs=None):
@@ -51,6 +51,11 @@ class PedalLooper(threading.Thread):
         device = devices[self.gpioPin]
         wire = gpiozero.LED(int(self.gpioPin))
         while devices[self.gpioPin].keepRunning:
+            if device.rpm == 0:
+                wire.off();
+                sleep(1)
+                continue
+                
             if device.strokeRpm:
                 self.runStroke(device, wire)
             else:
@@ -62,12 +67,8 @@ class PedalLooper(threading.Thread):
         print('running at ' + str(jitterRpm) + ' rpm (delay ' + str(delaySec) + ' sec) on pin ' + str(device.bcmPin))
         wire.on()
         sleep(delaySec)
-        if not devices[self.gpioPin].keepRunning:
-            return
         wire.off()
         sleep(delaySec)
-        if not devices[self.gpioPin].keepRunning:
-            return
 
     # Rowers expect the signal to ramp from 300 to 900 pulses and then back down to count strokes
     # we'll treat the RPM as strokes per minute, and thats how often we ramp up and down between 300 and 900 pulses
@@ -136,6 +137,30 @@ def rs485Page():
 def b_to_str(b):
     return str(b).replace('b', '').replace('\'', '')
 
+def checkForRs485PinsInUse():
+    for d in devices.values():
+        if ((d.bcmPin == 14 or d.bcmPin == 15 or d.bcmPin == 18) and d.keepRunning):
+            return True
+    
+    return False
+
+def occupyRs485Pins():
+    global devices
+    
+    devices[14] = ConsoleDevice(14, 0, False, None, True, True)
+    devices[15] = ConsoleDevice(15, 0, False, None, True, True)
+    devices[18] = ConsoleDevice(18, 0, False, None, True, True)
+    
+def releaseRs485Pins():
+    global devices
+    
+    devices[14].useRs485 = False
+    devices[14].keepRunning = False
+    devices[15].useRs485 = False
+    devices[15].keepRunning = False
+    devices[18].useRs485 = False
+    devices[18].keepRunning = False
+
 @app.route('/rs485/monitor', methods=['POST'])
 def startRs485Monitor():
     global shortbus_worker
@@ -144,10 +169,14 @@ def startRs485Monitor():
     if shortbus_worker_mode == "SPOOFER": # the spoofer is running
         return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'The spoofer is currently running. Stop it first.'}), 200, {'ContentType':'application/json'}
 
+    if checkForRs485PinsInUse():
+        return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'Cannot start the RS-485 monitor because the legacy pedaler is currently running one one of the pins needed. Stop it first.'}), 200, {'ContentType':'application/json'}
+
     if shortbus_worker == None:
         shortbus_worker = shortbus.MonitorThread()
         shortbus_worker.start()
         shortbus_worker_mode = "MONITOR"
+        occupyRs485Pins()
         return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Started the MONITOR.'}), 200, {'ContentType':'application/json'} 
         
     return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'MONITOR already running.'}), 200, {'ContentType':'application/json'}
@@ -160,10 +189,14 @@ def startRs485Spoofer():
     if shortbus_worker_mode == "MONITOR": # the monitor is running
         return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'The monitor is currently running. Stop it first.'}), 200, {'ContentType':'application/json'}
 
+    if checkForRs485PinsInUse():
+        return json.dumps({'success':False, 'mode':shortbus_worker_mode, 'msg':'Cannot start the RS-485 spoofer because the legacy pedaler is currently running one one of the pins needed. Stop it first.'}), 200, {'ContentType':'application/json'}
+
     if shortbus_worker == None: # nothing active, start the spoofer
         shortbus_worker = shortbus.SpooferThread()
         shortbus_worker.start()
         shortbus_worker_mode = "SPOOFER"
+        occupyRs485Pins()
         return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Started the SPOOFER.'}), 200, {'ContentType':'application/json'}
         
     return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'SPOOFER already running.'}), 200, {'ContentType':'application/json'}
@@ -215,7 +248,7 @@ def rs485Set():
     
         return json.dumps({'success':True, 'msg':'Set ' + str(key)[2:-1] + ' to ' + str(value) + '.'}), 200, {'ContentType':'application/json'}
     except KeyError:
-        return json.dumps({'success':False, 'msg':'You probably supplied an invalid key (address+command).'}), 400, {'ContentType':'application/json'}
+        return json.dumps({'success':False, 'msg':'You probably supplied an invalid key (address+command).'}), 200, {'ContentType':'application/json'}
 
 @app.route('/rs485/stop', methods=['POST'])
 def rs485Stop():
@@ -227,6 +260,7 @@ def rs485Stop():
         shortbus_worker.join()
         shortbus_worker = None
         shortbus_worker_mode = "none"
+        releaseRs485Pins()
         return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Stopped the MONITOR.'}), 200, {'ContentType':'application/json'}
 
     if shortbus_worker_mode == "SPOOFER": # stop the spoofer
@@ -234,6 +268,7 @@ def rs485Stop():
         shortbus_worker.join()
         shortbus_worker = None
         shortbus_worker_mode = "none"
+        releaseRs485Pins()
         return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Stopped the SPOOFER.'}), 200, {'ContentType':'application/json'}
     
     return json.dumps({'success':True, 'mode':shortbus_worker_mode, 'msg':'Nothing was running.'}), 200, {'ContentType':'application/json'}
@@ -262,23 +297,24 @@ def rs485Stop():
 
 @app.route('/set', methods=['POST'])
 def set():
+    global devices
+    
     reqData = request.get_json(force=True)
-    useRs485 = bool(reqData['useRs485'])
     bcmPin = int(reqData['bcmPin'])
     rpm = int(reqData['rpm'])
     strokeRpm = bool(reqData['strokeRpm'])
 
     if bcmPin < 0 or bcmPin > 27:
-        return json.dumps({'success':False, 'message':'BCM pin outside of allowable range.'}), 400, {'ContentType':'application/json'}
+        return json.dumps({'success':False, 'mode':'Stopped.', 'msg':'BCM pin outside of allowable range.'}), 200, {'ContentType':'application/json'}
     
     # TODO: Some more work making sure legacy pedaling and RS-485 dont clobber each other
-    if any(d.useRs485 for d in devices) and (bcmPin == 14 or bcmPin == 15 or bcmPin == 18):
-        return json.dumps({'success':False, 'message':'Cannot use pins 14, 15, or 18 when RS-485 is in use.'}), 400, {'ContentType':'application/json'}
+    if (bcmPin == 14 or bcmPin == 15 or bcmPin == 18) and any((d.bcmPin == bcmPin and d.useRs485) for d in devices.values()):
+        return json.dumps({'success':False, 'mode':'Stopped.', 'msg':'Cannot use pins 14, 15, or 18 when RS-485 is in use.'}), 200, {'ContentType':'application/json'}
     
     device = devices.get(bcmPin)
 
     if device is None:
-        device = ConsoleDevice(bcmPin, rpm, strokeRpm, None, True)
+        device = ConsoleDevice(bcmPin, rpm, strokeRpm, None, False, False)
         devices[bcmPin] = device
 
     device.rpm = rpm
@@ -289,7 +325,7 @@ def set():
         device.keepRunning = True
         device.pedalThread.start()
     
-    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+    return json.dumps({'success':True, 'mode':'Running.', 'msg':'Set pin ' + str(bcmPin) + ' to ' + str(rpm) + 'rpm, stroked: ' + str(strokeRpm)}), 200, {'ContentType':'application/json'} 
 
 @app.route('/stop', methods=['POST'])
 def stop():
@@ -298,24 +334,24 @@ def stop():
 
     if bcmPin < 0:
         stopAll()
-        return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+        return json.dumps({'success':True, 'mode':'Stopped.', 'msg':'Stopped pedaling on all legacy pins.'}), 200, {'ContentType':'application/json'} 
 
     device = devices.get(bcmPin)
     
     if device is None:
         print('Not running on ' + str(bcmPin))
-        return json.dumps({'success':True}), 404, {'ContentType':'application/json'} 
+        return json.dumps({'success':False, 'mode':'Stopped.', 'msg':'Not pedaling on pin' + str(bcmPin)}), 200, {'ContentType':'application/json'} 
     
     device.keepRunning = False
     device.pedalThread = None
-    return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
+    return json.dumps({'success':True, 'mode':'Stopped.', 'msg':'Stopped pedaling on pin ' + str(bcmPin)}), 200, {'ContentType':'application/json'} 
 
 def stopAll():
     for i in range(28):
         device = devices.get(i)
         if device is None:
             continue
-        else:
+        elif not device.useRs485:
             device.keepRunning = False
             device.pedalThread = None
 

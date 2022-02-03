@@ -507,9 +507,13 @@ class PedalThread(threading.Thread):
     
     def run(self):
         global stroke_rpm
+        global target_speed
         
         while not self.stopped():
             time.sleep(1)
+            if target_speed == 0:
+                self.set_speed(target_speed)
+                continue
             
             if stroke_rpm:
                 speedValue = self.run_stroke()
@@ -520,12 +524,12 @@ class PedalThread(threading.Thread):
         global target_speed
         
         speedValue = target_speed + random.choices([-1, 0, 1], weights=[0.15, 0.7, 0.15], k=1)[0]
-        speedValue = max(0, min(speedValue, 9999))
+        speedValue = max(0, min(speedValue, 9999))        
         self.set_speed(speedValue)
     
     def run_stroke(self):
         global target_speed
-        
+                    
         jitterSpm = target_speed + random.choices([-1, 0, 1], weights=[0.15, 0.7, 0.15], k=1)[0]
         jitterSpm = max(0, min(jitterSpm, 9999))
         strokeDelaySec = (14110.1 / math.pow(jitterSpm, 0.988567318803339)) / 1000.0

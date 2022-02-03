@@ -22,10 +22,13 @@
 				data: JSON.stringify({ bcmPin : bcmValue, rpm: rpmValue, strokeRpm: strokeValue }),
 				dataType: "json",
 				success: function (result){
-					$("#status").html(" Set and running!")
+					$("#status").html(result.mode);
+					$("#msg").html(result.msg);
 				},
 				error:function(err){
-					$("#status").html(" Error :(")
+					console.log(err)
+					$("#status").html(err.mode);
+					$("#msg").html(err.msg);
 				}
 			})
 		}
@@ -40,10 +43,13 @@
 				data: JSON.stringify({ bcmPin: bcmValue }),
 				dataType: "json",
 				success: function (result){
-					$("#status").html(" Stopped!")
+					$("#status").html(result.mode)
+					$("#msg").html(result.msg);
 				},
 				error:function(err){
-					$("#status").html(" Error :(")
+					console.log(err)
+					$("#status").html(err.mode)
+					$("#msg").html(err.msg);
 				}
 			})
 		}
@@ -66,9 +72,10 @@
 	BCM pin: <input type="text" id="bcmPin" value="{{bcmPin}}"><br>
 	RPM (int only): <input type="text" id="rpm" value="{{rpm}}"><br>
 	Stroke RPMs <input type="checkbox" id="strokeRpm" value="{{strokeRpm}}"><br>
-	<!-- On Time: <input type="text" name="lname"><br> -->
-	<button id="submit">Pedal</button><span id="status"></span><br>
-	<button id="stop">Stop</button>
+	<button id="submit">Pedal</button>
+	<button id="stop">Stop</button><br>
+	<span id="status"></span><br>
+	<span id="msg"></span>
 	<br>
 	<br>
 	<a href='/'><button>Home</button></a>
